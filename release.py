@@ -184,6 +184,36 @@ def create_github_release(repo, tag_name, version, notes, token):
         raise RuntimeError(f"Tao GitHub Release that bai: {body}") from exc
 
 
+def get_github_release_by_tag(repo, tag_name, token):
+    url = f"https://api.github.com/repos/{repo}/releases/tags/{tag_name}"
+    try:
+        return github_api_request(url, method="GET", token=token)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Khong lay duoc release theo tag {tag_name}: {body}") from exc
+
+
+def delete_release_asset(repo, asset_id, token):
+    url = f"https://api.github.com/repos/{repo}/releases/assets/{asset_id}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "ComicSubTool-release-script",
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        },
+        method="DELETE",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60):
+            return
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Xoa asset cu that bai: {body}") from exc
+
+
 def upload_release_asset(upload_url_template, asset_path, token):
     upload_url = upload_url_template.split("{", 1)[0]
     asset_name = asset_path.name
@@ -293,7 +323,6 @@ def main():
     repo = get_repo_name()
     branch = current_branch()
     tag_name = f"v{new_version}"
-    ensure_tag_not_exists(tag_name)
 
     asset_path = None if args.no_release else choose_asset_path(args.asset)
     commit_message = args.message or f"Release v{new_version}"
@@ -302,12 +331,23 @@ def main():
     run(["git", "add", "."])
     git_commit(commit_message)
     run(["git", "push", "-u", "origin", branch])
-    run(["git", "tag", tag_name])
-    run(["git", "push", "origin", tag_name])
+
+    tag_already_exists = tag_exists(tag_name)
+    if tag_already_exists and not args.no_bump:
+        raise RuntimeError(f"Tag {tag_name} da ton tai. Hay tang version roi chay lai.")
+    if not tag_already_exists:
+        run(["git", "tag", tag_name])
+        run(["git", "push", "origin", tag_name])
 
     release_url = ""
     if not args.no_release:
-        release = create_github_release(repo, tag_name, new_version, release_notes, token)
+        release = get_github_release_by_tag(repo, tag_name, token)
+        if release is None:
+            release = create_github_release(repo, tag_name, new_version, release_notes, token)
+        else:
+            for asset in release.get("assets", []):
+                if asset.get("name", "") == asset_path.name:
+                    delete_release_asset(repo, asset["id"], token)
         upload_release_asset(release["upload_url"], asset_path, token)
         release_url = release.get("html_url", "")
 
