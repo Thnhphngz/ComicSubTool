@@ -60,6 +60,10 @@ def replace_setting(name, value):
     write_app_text(new_text)
 
 
+def set_app_version(value):
+    replace_setting("APP_VERSION", value)
+
+
 def get_app_version():
     return extract_setting("APP_VERSION")
 
@@ -204,10 +208,12 @@ def choose_asset_path(user_asset_path=None):
             raise RuntimeError(f"Khong tim thay asset: {path}")
         return path
 
-    exe_name = get_update_asset_name() or "ComicSubTool.exe"
+    asset_name = get_update_asset_name() or "ComicSubTool-win.zip"
     candidates = [
-        ROOT / exe_name,
-        ROOT / "dist" / exe_name,
+        ROOT / asset_name,
+        ROOT / "dist" / asset_name,
+        ROOT / "dist" / "ComicSubTool-win.zip",
+        ROOT / "dist" / "ComicSubTool.exe",
         ROOT / "Comicsubtool.py",
     ]
     for path in candidates:
@@ -244,6 +250,11 @@ def parse_args():
         action="store_true",
         help="Chi bump version + git push, khong tao GitHub Release.",
     )
+    parser.add_argument(
+        "--no-bump",
+        action="store_true",
+        help="Khong tang version, dung APP_VERSION hien tai.",
+    )
     return parser.parse_args()
 
 
@@ -268,8 +279,11 @@ def main():
             )
 
     old_version = get_app_version()
-    new_version = bump_version(old_version, args.part)
-    replace_setting("APP_VERSION", new_version)
+    if args.no_bump:
+        new_version = old_version
+    else:
+        new_version = bump_version(old_version, args.part)
+        set_app_version(new_version)
 
     repo = get_repo_name()
     branch = current_branch()

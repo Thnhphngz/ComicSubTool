@@ -9,6 +9,7 @@ import numpy as np
 import json
 import tempfile
 import subprocess
+import zipfile
 import urllib.request
 import urllib.error
 from PyQt5.QtWidgets import (
@@ -28,9 +29,10 @@ from copy import deepcopy
 
 
 APP_NAME = "Comic Sub Tool"
-APP_VERSION = "0.1.3"
+APP_VERSION = "0.1.4"
 GITHUB_REPO = "Thnhphngz/ComicSubTool"
-UPDATE_ASSET_NAME = "ComicSubTool.exe"
+UPDATE_ASSET_NAME = "ComicSubTool-win.zip"
+APP_EXE_NAME = "ComicSubTool.exe"
 SOURCE_UPDATE_ASSET_NAME = "Comicsubtool.py"
 APP_ICON_FILE = "app_icon.ico"
 
@@ -1362,8 +1364,8 @@ class MainWindow(QMainWindow):
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = resp.read()
 
-        if getattr(sys, "frozen", False) and asset_name.lower().endswith(".exe"):
-            self._install_exe_update(asset_name, data)
+        if getattr(sys, "frozen", False) and asset_name.lower().endswith(".zip"):
+            self._install_zip_update(asset_name, data)
             return
 
         if (not getattr(sys, "frozen", False)) and asset_name.lower().endswith(".py"):
@@ -1385,19 +1387,57 @@ class MainWindow(QMainWindow):
             "Ban co the dung file nay de cap nhat thu cong hoac build lai app.")
         self.status.showMessage(f"Da tai goi cap nhat: {os.path.basename(save_path)}")
 
-    def _install_exe_update(self, asset_name: str, data: bytes):
+    def _install_zip_update(self, asset_name: str, data: bytes):
         current_exe = os.path.abspath(sys.executable)
+        current_pid = os.getpid()
+        current_app_dir = os.path.dirname(current_exe)
+        current_parent_dir = os.path.dirname(current_app_dir)
+        current_app_name = os.path.basename(current_app_dir)
         temp_dir = tempfile.mkdtemp(prefix="comic_sub_update_")
-        downloaded_exe = os.path.join(temp_dir, asset_name)
-        with open(downloaded_exe, "wb") as f:
+        downloaded_zip = os.path.join(temp_dir, asset_name)
+        with open(downloaded_zip, "wb") as f:
             f.write(data)
 
+        extract_dir = os.path.join(temp_dir, "extracted")
+        os.makedirs(extract_dir, exist_ok=True)
+        with zipfile.ZipFile(downloaded_zip, "r") as zf:
+            zf.extractall(extract_dir)
+
+        extracted_app_dir = os.path.join(extract_dir, current_app_name)
+        if not os.path.isdir(extracted_app_dir):
+            raise RuntimeError(
+                f"Goi cap nhat khong hop le. File zip phai chua thu muc {current_app_name}."
+            )
+
+        relaunched_exe = os.path.join(current_app_dir, APP_EXE_NAME)
+        backup_dir = current_app_dir + "_old"
         script_path = os.path.join(temp_dir, "apply_update.bat")
         script = (
             "@echo off\n"
-            "ping 127.0.0.1 -n 3 > nul\n"
-            f'copy /Y "{downloaded_exe}" "{current_exe}" > nul\n'
-            f'start "" "{current_exe}"\n'
+            "setlocal\n"
+            f'set "APP_PID={current_pid}"\n'
+            f'set "TARGET_DIR={current_app_dir}"\n'
+            f'set "TARGET_PARENT={current_parent_dir}"\n'
+            f'set "SOURCE_DIR={extracted_app_dir}"\n'
+            f'set "BACKUP_DIR={backup_dir}"\n'
+            f'set "TARGET_EXE={relaunched_exe}"\n'
+            ":wait_for_exit\n"
+            'tasklist /FI "PID eq %APP_PID%" | find "%APP_PID%" > nul\n'
+            "if not errorlevel 1 (\n"
+            "    timeout /t 1 /nobreak > nul\n"
+            "    goto wait_for_exit\n"
+            ")\n"
+            'if exist "%BACKUP_DIR%" rmdir /S /Q "%BACKUP_DIR%" > nul 2>nul\n'
+            'if exist "%TARGET_DIR%" move /Y "%TARGET_DIR%" "%BACKUP_DIR%" > nul 2>nul\n'
+            'xcopy /E /I /Y "%SOURCE_DIR%" "%TARGET_DIR%" > nul\n'
+            "if errorlevel 1 (\n"
+            '    if not exist "%TARGET_DIR%" if exist "%BACKUP_DIR%" move /Y "%BACKUP_DIR%" "%TARGET_DIR%" > nul 2>nul\n'
+            '    echo Update failed. >> "%TEMP%\\comic_sub_update_error.log"\n'
+            "    exit /b 1\n"
+            ")\n"
+            'start "" /D "%TARGET_DIR%" "%TARGET_EXE%"\n'
+            "timeout /t 2 /nobreak > nul\n"
+            'if exist "%BACKUP_DIR%" rmdir /S /Q "%BACKUP_DIR%" > nul 2>nul\n'
             'del "%~f0"\n'
         )
         with open(script_path, "w", encoding="utf-8") as f:
@@ -1409,7 +1449,7 @@ class MainWindow(QMainWindow):
         )
         QMessageBox.information(
             self, "Dang cai cap nhat",
-            "App se dong de thay file .exe moi, sau do tu mo lai.")
+            "App se dong de thay thu muc ung dung moi, sau do tu mo lai.")
         QApplication.instance().quit()
 
     def _install_source_update(self, asset_name: str, data: bytes):

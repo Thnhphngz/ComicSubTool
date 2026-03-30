@@ -14,7 +14,6 @@ def main():
         "--noconfirm",
         "--clean",
         "--name=ComicSubTool",
-        "--onefile",
         "--windowed",
         f"--icon={ICON_FILE}",
         f"--add-data={ICON_FILE};.",

@@ -34,3 +34,30 @@ Neu muon tao va push tag theo `APP_VERSION`:
 ```powershell
 python release.py --tag
 ```
+
+## Phat hanh ban app onedir + zip
+
+Build thu muc app:
+
+```powershell
+python build_exe.py
+```
+
+Dong goi file update:
+
+```powershell
+python package_release.py
+```
+
+Lenh don gian nhat de phat hanh:
+
+```powershell
+python ship.py
+```
+
+Lenh nay se tu:
+- tang `APP_VERSION`
+- build app dang `onedir`
+- tao `dist\ComicSubTool-win.zip`
+- commit, push, tag
+- tao GitHub Release va upload file zip
