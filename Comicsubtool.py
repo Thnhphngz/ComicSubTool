@@ -28,10 +28,11 @@ from copy import deepcopy
 
 
 APP_NAME = "Comic Sub Tool"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
 GITHUB_REPO = "Thnhphngz/ComicSubTool"
 UPDATE_ASSET_NAME = "ComicSubTool.exe"
 SOURCE_UPDATE_ASSET_NAME = "Comicsubtool.py"
+APP_ICON_FILE = "app_icon.ico"
 
 
 # ─────────────────────────────────────────────
@@ -71,6 +72,17 @@ class Scene:
 # ─────────────────────────────────────────────
 # SRT Parser / Exporter
 # ─────────────────────────────────────────────
+
+def resource_path(relative_path: str) -> str:
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
+
+def load_app_icon() -> QIcon:
+    icon_path = resource_path(APP_ICON_FILE)
+    if os.path.exists(icon_path):
+        return QIcon(icon_path)
+    return QIcon()
 
 def parse_srt_time(t: str) -> int:
     t = t.strip()
@@ -686,6 +698,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
+        self.setWindowIcon(load_app_icon())
         self.setMinimumSize(1100, 700)
         self.video_path  = None
         self.srt_path    = None
@@ -1287,7 +1300,8 @@ class MainWindow(QMainWindow):
 
         self.btn_update.setEnabled(False)
         self.status.showMessage("Dang kiem tra GitHub Releases...")
-        self.update_worker = UpdateCheckWorker(GITHUB_REPO, UPDATE_ASSET_NAME)
+        preferred_asset_name = UPDATE_ASSET_NAME if getattr(sys, "frozen", False) else SOURCE_UPDATE_ASSET_NAME
+        self.update_worker = UpdateCheckWorker(GITHUB_REPO, preferred_asset_name)
         self.update_worker.finished.connect(self.on_update_manifest_loaded)
         self.update_worker.error.connect(self.on_update_check_error)
         self.update_worker.start()
@@ -1352,6 +1366,10 @@ class MainWindow(QMainWindow):
             self._install_exe_update(asset_name, data)
             return
 
+        if (not getattr(sys, "frozen", False)) and asset_name.lower().endswith(".py"):
+            self._install_source_update(asset_name, data)
+            return
+
         default_path = os.path.join(os.getcwd(), asset_name)
         save_path, _ = QFileDialog.getSaveFileName(
             self, "Luu goi cap nhat", default_path, "Tat ca (*)")
@@ -1394,6 +1412,34 @@ class MainWindow(QMainWindow):
             "App se dong de thay file .exe moi, sau do tu mo lai.")
         QApplication.instance().quit()
 
+    def _install_source_update(self, asset_name: str, data: bytes):
+        current_script = os.path.abspath(sys.argv[0])
+        current_python = os.path.abspath(sys.executable)
+        temp_dir = tempfile.mkdtemp(prefix="comic_sub_source_update_")
+        downloaded_script = os.path.join(temp_dir, asset_name)
+        with open(downloaded_script, "wb") as f:
+            f.write(data)
+
+        script_path = os.path.join(temp_dir, "apply_source_update.bat")
+        script = (
+            "@echo off\n"
+            "ping 127.0.0.1 -n 3 > nul\n"
+            f'copy /Y "{downloaded_script}" "{current_script}" > nul\n'
+            f'start "" "{current_python}" "{current_script}"\n'
+            'del "%~f0"\n'
+        )
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(script)
+
+        subprocess.Popen(
+            ["cmd", "/c", "start", "", "/min", script_path],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+        QMessageBox.information(
+            self, "Dang cai cap nhat source",
+            "App se dong de thay file .py moi, sau do tu mo lai.")
+        QApplication.instance().quit()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self.current_idx >= 0:
@@ -1407,6 +1453,7 @@ class MainWindow(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    app.setWindowIcon(load_app_icon())
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())
