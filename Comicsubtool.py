@@ -31,6 +31,7 @@ APP_NAME = "Comic Sub Tool"
 APP_VERSION = "0.1.0"
 GITHUB_REPO = "Thnhphngz/ComicSubTool"
 UPDATE_ASSET_NAME = "ComicSubTool.exe"
+SOURCE_UPDATE_ASSET_NAME = "Comicsubtool.py"
 
 
 # ─────────────────────────────────────────────
