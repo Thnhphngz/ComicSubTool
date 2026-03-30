@@ -15,3 +15,22 @@
 Goi y:
 - Neu tag la `v0.1.1`, app van so sanh dung voi `0.1.0`.
 - Nen giu ten file `.exe` on dinh giua cac release.
+
+## Push source tu dong
+
+Chay:
+
+```powershell
+python release.py
+```
+
+Script se tu:
+- `git add .`
+- `git commit`
+- `git push`
+
+Neu muon tao va push tag theo `APP_VERSION`:
+
+```powershell
+python release.py --tag
+```
