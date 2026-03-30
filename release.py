@@ -142,6 +142,11 @@ def ensure_tag_not_exists(tag_name):
         raise RuntimeError(f"Tag {tag_name} da ton tai. Hay tang version roi chay lai.")
 
 
+def tag_exists(tag_name):
+    existing = capture(["git", "tag", "--list", tag_name])
+    return bool(existing.strip())
+
+
 def github_api_request(url, method="GET", data=None, token=None, extra_headers=None):
     headers = {
         "User-Agent": "ComicSubTool-release-script",

@@ -9,6 +9,8 @@ env/
 
 dist/
 build/
+build_dist/
+build_pyinstaller/
 *.spec
 
 *.mp4

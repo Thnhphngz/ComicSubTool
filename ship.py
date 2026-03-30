@@ -38,6 +38,11 @@ def parse_args():
         action="store_true",
         help="Chi bump version + build, khong tao GitHub Release.",
     )
+    parser.add_argument(
+        "--reuse-build",
+        action="store_true",
+        help="Khong build lai, chi zip va release tu goi build san co.",
+    )
     return parser.parse_args()
 
 
@@ -45,11 +50,14 @@ def main():
     args = parse_args()
     old_version = release.get_app_version()
     new_version = release.bump_version(old_version, args.part)
+    while release.tag_exists(f"v{new_version}"):
+        new_version = release.bump_version(new_version, "patch")
     release.set_app_version(new_version)
     print(f"Version: {old_version} -> {new_version}")
 
     try:
-        run([sys.executable, "build_exe.py"])
+        if not args.reuse_build:
+            run([sys.executable, "build_exe.py"])
         run([sys.executable, "package_release.py"])
         cmd = [
             sys.executable, "release.py",
