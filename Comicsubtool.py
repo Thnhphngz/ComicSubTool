@@ -28,7 +28,7 @@ from copy import deepcopy
 
 
 APP_NAME = "Comic Sub Tool"
-APP_VERSION = "0.1.2"
+APP_VERSION = "0.1.3"
 GITHUB_REPO = "Thnhphngz/ComicSubTool"
 UPDATE_ASSET_NAME = "ComicSubTool.exe"
 SOURCE_UPDATE_ASSET_NAME = "Comicsubtool.py"
