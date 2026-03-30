@@ -29,7 +29,7 @@ from copy import deepcopy
 
 
 APP_NAME = "Comic Sub Tool"
-APP_VERSION = "0.1.11"
+APP_VERSION = "0.1.12"
 GITHUB_REPO = "Thnhphngz/ComicSubTool"
 UPDATE_ASSET_NAME = "ComicSubTool-win.zip"
 APP_EXE_NAME = "ComicSubTool.exe"
@@ -1443,9 +1443,13 @@ class MainWindow(QMainWindow):
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(script)
 
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
         subprocess.Popen(
             ["cmd", "/c", script_path],
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            startupinfo=si
         )
         QMessageBox.information(
             self, "Dang cai cap nhat",
@@ -1471,9 +1475,13 @@ class MainWindow(QMainWindow):
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(script)
 
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
         subprocess.Popen(
             ["cmd", "/c", script_path],
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            startupinfo=si
         )
         QMessageBox.information(
             self, "Dang cai cap nhat source",
