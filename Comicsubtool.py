@@ -29,7 +29,7 @@ from copy import deepcopy
 
 
 APP_NAME = "Comic Sub Tool"
-APP_VERSION = "0.1.9"
+APP_VERSION = "0.1.10"
 GITHUB_REPO = "Thnhphngz/ComicSubTool"
 UPDATE_ASSET_NAME = "ComicSubTool-win.zip"
 APP_EXE_NAME = "ComicSubTool.exe"
@@ -723,7 +723,7 @@ class MainWindow(QMainWindow):
         # ── Toolbar row 1 ──
         toolbar = QHBoxLayout()
 
-        self.btn_video     = QPushButton("📁 Mở Video")
+        self.btn_video     = QPushButton("📁 Mở Video.")
         self.btn_srt       = QPushButton("📄 Mở SRT")
         self.btn_detect    = QPushButton("🔍 Detect Cảnh")
         self.btn_export    = QPushButton("💾 Export SRT")
