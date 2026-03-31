@@ -29,7 +29,7 @@ from copy import deepcopy
 
 
 APP_NAME = "Comic Sub Tool"
-APP_VERSION = "0.1.12"
+APP_VERSION = "0.1.13"
 GITHUB_REPO = "Thnhphngz/ComicSubTool"
 UPDATE_ASSET_NAME = "ComicSubTool-win.zip"
 APP_EXE_NAME = "ComicSubTool.exe"
@@ -723,17 +723,19 @@ class MainWindow(QMainWindow):
         # ── Toolbar row 1 ──
         toolbar = QHBoxLayout()
 
-        self.btn_video     = QPushButton("📁 Mở Video.")
-        self.btn_srt       = QPushButton("📄 Mở SRT")
-        self.btn_detect    = QPushButton("🔍 Detect Cảnh")
-        self.btn_export    = QPushButton("💾 Export SRT")
-        self.btn_clean_srt = QPushButton("🧹 Clean SRT → Word")
-        self.btn_save_imgs = QPushButton("🖼 Lưu Hình Ảnh")
-        self.btn_update    = QPushButton("⬇ Cập nhật")
+        self.btn_video        = QPushButton("📁 Mở Video")
+        self.btn_srt          = QPushButton("📄 Mở SRT")
+        self.btn_detect       = QPushButton("🔍 Detect Cảnh")
+        self.btn_export       = QPushButton("💾 Export SRT")
+        self.btn_clean_srt    = QPushButton("🧹 Clean SRT → Word")
+        self.btn_save_imgs    = QPushButton("🖼 Lưu Hình Ảnh")
+        self.btn_delete_nosub = QPushButton("🗑 Xóa cảnh không sub")
+        self.btn_update       = QPushButton("⬇ Cập nhật")
 
         self.btn_detect.setEnabled(False)
         self.btn_export.setEnabled(False)
         self.btn_save_imgs.setEnabled(False)
+        self.btn_delete_nosub.setEnabled(False)
 
         self.btn_video.clicked.connect(self.open_video)
         self.btn_srt.clicked.connect(self.open_srt)
@@ -741,11 +743,12 @@ class MainWindow(QMainWindow):
         self.btn_export.clicked.connect(self.export_srt)
         self.btn_clean_srt.clicked.connect(self.clean_srt_to_docx)
         self.btn_save_imgs.clicked.connect(self.save_images)
+        self.btn_delete_nosub.clicked.connect(self.delete_scenes_without_sub)
         self.btn_update.clicked.connect(self.check_for_updates)
 
         for btn in [self.btn_video, self.btn_srt, self.btn_detect,
                     self.btn_export, self.btn_clean_srt, self.btn_save_imgs,
-                    self.btn_update]:
+                    self.btn_delete_nosub, self.btn_update]:
             btn.setFixedHeight(36)
             toolbar.addWidget(btn)
 
@@ -970,6 +973,7 @@ class MainWindow(QMainWindow):
         self.btn_detect.setEnabled(True)
         self.btn_export.setEnabled(True)
         self.btn_save_imgs.setEnabled(True)
+        self.btn_delete_nosub.setEnabled(True)
         self._populate_scene_list()
         self.status.showMessage(
             f"Phat hien {len(scenes)} canh. "
@@ -1104,6 +1108,22 @@ class MainWindow(QMainWindow):
         self.txt_sub.clear()
         self.txt_sub.blockSignals(False)
         self._update_scene_list_item(i)
+
+    def delete_scenes_without_sub(self):
+        count = sum(1 for s in self.scenes if not s.subs)
+        if count == 0:
+            QMessageBox.information(self, "Thong bao", "Khong co canh nao thieu sub.")
+            return
+        answer = QMessageBox.question(
+            self, "Xac nhan",
+            f"Se xoa {count} canh khong co sub.\nBan co chac khong?"
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self.scenes = [s for s in self.scenes if s.subs]
+        self.current_idx = -1
+        self._populate_scene_list()
+        self.status.showMessage(f"Da xoa {count} canh khong co sub. Con lai: {len(self.scenes)} canh.")
 
     # ── Clean SRT → Word (.docx) ──────────────────────────────────
 
