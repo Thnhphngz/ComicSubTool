@@ -2,6 +2,7 @@ import argparse
 import json
 import mimetypes
 import re
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -12,6 +13,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 APP_FILE = ROOT / "Comicsubtool.py"
+DIST_DIR = ROOT / "dist"
+BUILD_DIST_DIR = ROOT / "build_dist"
+APP_BUILD_DIR = BUILD_DIST_DIR / "ComicSubTool"
+DIST_FINAL_DIR = ROOT / "dist_final"
+FINAL_APP_DIR = DIST_FINAL_DIR / "ComicSubTool"
+FINAL_ZIP_PATH = DIST_FINAL_DIR / "ComicSubTool-win.zip"
 
 
 def run(cmd, check=True):
@@ -77,6 +84,34 @@ def get_repo_name():
 
 def get_update_asset_name():
     return extract_setting("UPDATE_ASSET_NAME").strip()
+
+
+def clean_path(path):
+    if path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
+
+
+def build_release_package():
+    print("")
+    print("Dang build app moi...")
+    run([sys.executable, "build_exe.py"])
+    run([sys.executable, "package_release.py"])
+
+    asset_name = get_update_asset_name() or "ComicSubTool-win.zip"
+    built_zip = DIST_DIR / asset_name
+    if not APP_BUILD_DIR.exists():
+        raise RuntimeError(f"Khong tim thay thu muc build: {APP_BUILD_DIR}")
+    if not built_zip.exists():
+        raise RuntimeError(f"Khong tim thay goi update: {built_zip}")
+
+    DIST_FINAL_DIR.mkdir(parents=True, exist_ok=True)
+    clean_path(FINAL_APP_DIR)
+    clean_path(FINAL_ZIP_PATH)
+    shutil.copytree(APP_BUILD_DIR, FINAL_APP_DIR)
+    shutil.copy2(built_zip, FINAL_ZIP_PATH)
+    return built_zip
 
 
 def parse_version(version):
@@ -290,6 +325,11 @@ def parse_args():
         action="store_true",
         help="Khong tang version, dung APP_VERSION hien tai.",
     )
+    parser.add_argument(
+        "--skip-build",
+        action="store_true",
+        help="Khong build lai app. Chi dung khi muon upload asset co san bang --asset.",
+    )
     return parser.parse_args()
 
 
@@ -324,7 +364,20 @@ def main():
     branch = current_branch()
     tag_name = f"v{new_version}"
 
-    asset_path = None if args.no_release else choose_asset_path(args.asset)
+    try:
+        tag_already_exists = tag_exists(tag_name)
+        if tag_already_exists and not args.no_bump:
+            raise RuntimeError(f"Tag {tag_name} da ton tai. Hay tang version roi chay lai.")
+
+        built_asset_path = None
+        if not args.skip_build:
+            built_asset_path = build_release_package()
+    except Exception:
+        if not args.no_bump:
+            set_app_version(old_version)
+        raise
+
+    asset_path = None if args.no_release else choose_asset_path(args.asset or built_asset_path)
     commit_message = args.message or f"Release v{new_version}"
     release_notes = args.notes or f"Auto release v{new_version}"
 
@@ -332,9 +385,6 @@ def main():
     git_commit(commit_message)
     run(["git", "push", "-u", "origin", branch])
 
-    tag_already_exists = tag_exists(tag_name)
-    if tag_already_exists and not args.no_bump:
-        raise RuntimeError(f"Tag {tag_name} da ton tai. Hay tang version roi chay lai.")
     if not tag_already_exists:
         run(["git", "tag", tag_name])
         run(["git", "push", "origin", tag_name])
@@ -359,6 +409,9 @@ def main():
     print(f"- Tag: {tag_name}")
     if asset_path is not None:
         print(f"- Asset: {asset_path.name}")
+    if not args.skip_build:
+        print(f"- Thu muc gui may khac: {DIST_FINAL_DIR}")
+        print(f"- File zip update: {FINAL_ZIP_PATH}")
     if release_url:
         print(f"- GitHub Release: {release_url}")
     elif args.no_release:

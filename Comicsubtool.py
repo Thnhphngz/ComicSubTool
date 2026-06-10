@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QGroupBox, QMessageBox, QStatusBar, QSizePolicy, QCheckBox, QDialog,
     QDialogButtonBox, QRadioButton, QButtonGroup
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer
 from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon
 import re
 import os
@@ -30,13 +30,14 @@ from copy import deepcopy
 
 
 APP_NAME = "Comic Sub Tool"
-APP_VERSION = "0.1.14"
+APP_VERSION = "0.1.16"
 GITHUB_REPO = "Thnhphngz/ComicSubTool"
 UPDATE_ASSET_NAME = "ComicSubTool-win.zip"
 APP_EXE_NAME = "ComicSubTool.exe"
 SOURCE_UPDATE_ASSET_NAME = "Comicsubtool.py"
 APP_ICON_FILE = "app_icon.ico"
 LOG_PATH = os.path.join(tempfile.gettempdir(), "ComicSubTool.log")
+UPDATE_SUCCESS_FILE = "update_success.txt"
 
 logging.basicConfig(
     filename=LOG_PATH,
@@ -95,6 +96,12 @@ def load_app_icon() -> QIcon:
     if os.path.exists(icon_path):
         return QIcon(icon_path)
     return QIcon()
+
+
+def app_runtime_dir() -> str:
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
 
 def parse_srt_time(t: str) -> int:
     t = t.strip()
@@ -872,6 +879,7 @@ class MainWindow(QMainWindow):
         self.update_worker = None
         self._build_ui()
         self._apply_dark_theme()
+        QTimer.singleShot(500, self._show_update_success_if_needed)
 
     def _build_ui(self):
         central = QWidget()
@@ -1041,6 +1049,27 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self.status.showMessage(f"San sang. {APP_NAME} v{APP_VERSION}.")
+
+    def _show_update_success_if_needed(self):
+        marker_path = os.path.join(app_runtime_dir(), UPDATE_SUCCESS_FILE)
+        if not os.path.exists(marker_path):
+            return
+
+        try:
+            with open(marker_path, "r", encoding="utf-8", errors="replace") as f:
+                message = f.read().strip()
+        except Exception:
+            message = ""
+
+        try:
+            os.remove(marker_path)
+        except Exception:
+            pass
+
+        if not message:
+            message = f"Da cap nhat thanh cong len v{APP_VERSION}."
+        self.status.showMessage(message)
+        QMessageBox.information(self, "Cap nhat thanh cong", message)
 
     def _apply_dark_theme(self):
         self.setStyleSheet("""
@@ -1546,7 +1575,7 @@ class MainWindow(QMainWindow):
             data = resp.read()
 
         if getattr(sys, "frozen", False) and asset_name.lower().endswith(".zip"):
-            self._install_zip_update(asset_name, data)
+            self._install_zip_update(asset_name, data, latest_version)
             return
 
         if (not getattr(sys, "frozen", False)) and asset_name.lower().endswith(".py"):
@@ -1568,12 +1597,13 @@ class MainWindow(QMainWindow):
             "Ban co the dung file nay de cap nhat thu cong hoac build lai app.")
         self.status.showMessage(f"Da tai goi cap nhat: {os.path.basename(save_path)}")
 
-    def _install_zip_update(self, asset_name: str, data: bytes):
+    def _install_zip_update(self, asset_name: str, data: bytes, latest_version: str):
         current_exe = os.path.abspath(sys.executable)
         current_pid = os.getpid()
         current_app_dir = os.path.dirname(current_exe)
         current_parent_dir = os.path.dirname(current_app_dir)
         current_app_name = os.path.basename(current_app_dir)
+        latest_version = str(latest_version or "").strip() or APP_VERSION
         temp_dir = tempfile.mkdtemp(prefix="comic_sub_update_")
         downloaded_zip = os.path.join(temp_dir, asset_name)
         with open(downloaded_zip, "wb") as f:
@@ -1592,6 +1622,7 @@ class MainWindow(QMainWindow):
 
         relaunched_exe = os.path.join(current_app_dir, APP_EXE_NAME)
         backup_dir = current_app_dir + "_old"
+        success_marker = os.path.join(current_app_dir, UPDATE_SUCCESS_FILE)
         script_path = os.path.join(temp_dir, "apply_update.bat")
         script = (
             "@echo off\n"
@@ -1602,6 +1633,9 @@ class MainWindow(QMainWindow):
             f'set "SOURCE_DIR={extracted_app_dir}"\n'
             f'set "BACKUP_DIR={backup_dir}"\n'
             f'set "TARGET_EXE={relaunched_exe}"\n'
+            f'set "SUCCESS_MARKER={success_marker}"\n'
+            f'set "OLD_VERSION={APP_VERSION}"\n'
+            f'set "NEW_VERSION={latest_version.lstrip("vV")}"\n'
             ":wait_for_exit\n"
             'tasklist /FI "PID eq %APP_PID%" | find "%APP_PID%" > nul\n'
             "if not errorlevel 1 (\n"
@@ -1616,6 +1650,13 @@ class MainWindow(QMainWindow):
             '    echo Update failed. >> "%TEMP%\\comic_sub_update_error.log"\n'
             "    exit /b 1\n"
             ")\n"
+            'if not exist "%TARGET_EXE%" (\n'
+            '    if exist "%BACKUP_DIR%" rmdir /S /Q "%TARGET_DIR%" > nul 2>nul\n'
+            '    if exist "%BACKUP_DIR%" move /Y "%BACKUP_DIR%" "%TARGET_DIR%" > nul 2>nul\n'
+            '    echo Update failed: target exe missing. >> "%TEMP%\\comic_sub_update_error.log"\n'
+            "    exit /b 1\n"
+            ")\n"
+            'echo Da cap nhat thanh cong tu v%OLD_VERSION% len v%NEW_VERSION%. > "%SUCCESS_MARKER%"\n'
             'start "" /D "%TARGET_DIR%" "%TARGET_EXE%"\n'
             "timeout /t 2 /nobreak > nul\n"
             'if exist "%BACKUP_DIR%" rmdir /S /Q "%BACKUP_DIR%" > nul 2>nul\n'
