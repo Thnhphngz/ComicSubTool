@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import json
 import tempfile
+import logging
 import subprocess
 import zipfile
 import urllib.request
@@ -29,12 +30,21 @@ from copy import deepcopy
 
 
 APP_NAME = "Comic Sub Tool"
-APP_VERSION = "0.1.13"
+APP_VERSION = "0.1.14"
 GITHUB_REPO = "Thnhphngz/ComicSubTool"
 UPDATE_ASSET_NAME = "ComicSubTool-win.zip"
 APP_EXE_NAME = "ComicSubTool.exe"
 SOURCE_UPDATE_ASSET_NAME = "Comicsubtool.py"
 APP_ICON_FILE = "app_icon.ico"
+LOG_PATH = os.path.join(tempfile.gettempdir(), "ComicSubTool.log")
+
+logging.basicConfig(
+    filename=LOG_PATH,
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    encoding="utf-8"
+)
+logger = logging.getLogger(APP_NAME)
 
 
 # ─────────────────────────────────────────────
@@ -295,10 +305,129 @@ class DetectWorker(QThread):
         try:
             self.finished.emit(self._detect())
         except Exception as e:
+            logger.exception("Video analysis failed for %s", self.video_path)
             self.error.emit(str(e))
 
-    def _detect(self) -> List[Scene]:
+    def _open_capture(self):
         cap = cv2.VideoCapture(self.video_path)
+        if not cap.isOpened():
+            raise RuntimeError(
+                "Khong mo duoc video.\n"
+                "File co the bi hong hoac dinh dang/codec chua duoc OpenCV ho tro."
+            )
+        return cap
+
+    def _reopen_capture_at_frame(self, frame_idx: int):
+        logger.warning("Reopening video capture at frame %s", frame_idx)
+        cap = self._open_capture()
+        if frame_idx > 0:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        return cap
+
+    def _safe_read_frame(self, cap, frame_idx: int, stage: str, total_fr: int):
+        try:
+            ret, frame = cap.read()
+        except cv2.error:
+            logger.exception(
+                "OpenCV read error during %s at frame %s/%s for %s",
+                stage, frame_idx, total_fr, self.video_path
+            )
+            try:
+                cap.release()
+            except Exception:
+                pass
+            cap = self._reopen_capture_at_frame(frame_idx)
+            try:
+                ret, frame = cap.read()
+            except cv2.error:
+                logger.exception(
+                    "Fallback OpenCV read error during %s at frame %s/%s for %s",
+                    stage, frame_idx, total_fr, self.video_path
+                )
+                return False, None, cap, (
+                    f"Khong doc duoc frame {frame_idx} khi {stage}. "
+                    "Video co the bi loi frame hoac codec khong duoc ho tro."
+                )
+            except Exception:
+                logger.exception(
+                    "Unexpected fallback read error during %s at frame %s/%s for %s",
+                    stage, frame_idx, total_fr, self.video_path
+                )
+                return False, None, cap, (
+                    f"Khong doc duoc frame {frame_idx} khi {stage}. "
+                    "Da thu mo lai video nhung van that bai."
+                )
+            if ret and frame is not None:
+                logger.warning(
+                    "Recovered video read during %s at frame %s/%s",
+                    stage, frame_idx, total_fr
+                )
+                return True, frame, cap, None
+            logger.error(
+                "Fallback returned no frame during %s at frame %s/%s for %s",
+                stage, frame_idx, total_fr, self.video_path
+            )
+            return False, None, cap, (
+                f"Khong doc duoc frame {frame_idx} khi {stage}. "
+                "Video co the bi loi frame hoac codec khong duoc ho tro."
+            )
+        except Exception:
+            logger.exception(
+                "Unexpected read error during %s at frame %s/%s for %s",
+                stage, frame_idx, total_fr, self.video_path
+            )
+            return False, None, cap, f"Khong doc duoc frame {frame_idx} khi {stage}."
+
+        if ret and frame is not None:
+            return True, frame, cap, None
+
+        if total_fr > 0 and frame_idx >= max(0, total_fr - 1):
+            return False, None, cap, None
+
+        logger.warning(
+            "VideoCapture.read returned empty frame during %s at frame %s/%s for %s",
+            stage, frame_idx, total_fr, self.video_path
+        )
+        try:
+            reopened_cap = self._reopen_capture_at_frame(frame_idx)
+            retry_ret, retry_frame = reopened_cap.read()
+        except cv2.error:
+            logger.exception(
+                "Fallback empty-frame read error during %s at frame %s/%s for %s",
+                stage, frame_idx, total_fr, self.video_path
+            )
+            return False, None, cap, (
+                f"Khong doc duoc frame {frame_idx} khi {stage}. "
+                "Video co the bi loi frame hoac codec khong duoc ho tro."
+            )
+        except Exception:
+            logger.exception(
+                "Unexpected fallback empty-frame error during %s at frame %s/%s for %s",
+                stage, frame_idx, total_fr, self.video_path
+            )
+            return False, None, cap, f"Khong doc duoc frame {frame_idx} khi {stage}."
+
+        try:
+            cap.release()
+        except Exception:
+            pass
+        cap = reopened_cap
+
+        if retry_ret and retry_frame is not None:
+            logger.warning(
+                "Recovered empty-frame read during %s at frame %s/%s",
+                stage, frame_idx, total_fr
+            )
+            return True, retry_frame, cap, None
+
+        return False, None, cap, (
+            f"Khong doc duoc frame {frame_idx} khi {stage}. "
+            "Video co the bi loi frame hoac codec khong duoc ho tro."
+        )
+
+    def _detect(self) -> List[Scene]:
+        cap = self._open_capture()
+        logger.info("Starting video analysis for %s", self.video_path)
         if not cap.isOpened():
             raise RuntimeError("Không mở được video")
 
@@ -306,6 +435,12 @@ class DetectWorker(QThread):
         total_fr = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         height   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         crop_h   = int(height * (1 - self.sub_crop_pct))
+        if total_fr <= 0 or height <= 0:
+            cap.release()
+            raise RuntimeError(
+                "Khong doc duoc thong tin video.\n"
+                "File co the bi hong hoac codec khong duoc ho tro."
+            )
 
         # Pass 1: diff
         self.progress.emit(0, "Đang phân tích video...")
@@ -313,10 +448,30 @@ class DetectWorker(QThread):
         prev_gray = None
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         frame_idx = 0
+        consecutive_failures = 0
         while True:
-            ret, frame = cap.read()
+            ret, frame, cap, read_error = self._safe_read_frame(
+                cap, frame_idx, "phan tich video", total_fr
+            )
+            if read_error:
+                consecutive_failures += 1
+                logger.warning(
+                    "Skipping unreadable frame %s during analysis (attempt %s)",
+                    frame_idx, consecutive_failures
+                )
+                if consecutive_failures >= 3:
+                    cap.release()
+                    raise RuntimeError(
+                        read_error
+                        + f"\nDa thu doc lai nhung van that bai gan frame {frame_idx}."
+                        + f"\nXem log tai: {LOG_PATH}"
+                    )
+                frame_idx += 1
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                continue
             if not ret:
                 break
+            consecutive_failures = 0
             roi  = frame[:crop_h, :]
             gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
             gray = cv2.resize(gray, (320, 180))
@@ -379,13 +534,18 @@ class DetectWorker(QThread):
             end_ms   = int(ef / fps * 1000)
             mid_frame = (sf + ef) // 2
             cap.set(cv2.CAP_PROP_POS_FRAMES, mid_frame)
-            ret, thumb = cap.read()
+            ret, thumb, cap, read_error = self._safe_read_frame(
+                cap, mid_frame, "lay thumbnail", total_fr
+            )
+            if read_error:
+                logger.warning("Thumbnail read failed at frame %s: %s", mid_frame, read_error)
             scene_list.append(Scene(start_ms=start_ms, end_ms=end_ms,
                                     thumbnail=thumb if ret else None))
             if i % 10 == 0:
                 self.progress.emit(75 + int(i / n * 20), f"Thumbnail {i+1}/{n}")
 
         cap.release()
+        logger.info("Completed video analysis for %s with %s scenes", self.video_path, len(scene_list))
 
         # Map sub vào cảnh
         self.progress.emit(95, "Ghép subtitle...")
@@ -982,7 +1142,8 @@ class MainWindow(QMainWindow):
     def on_detect_error(self, msg):
         self.progress_bar.setVisible(False)
         self.btn_detect.setEnabled(True)
-        QMessageBox.critical(self, "Loi", f"Loi khi phan tich video:\n{msg}")
+        detail = msg if LOG_PATH in msg else f"{msg}\n\nLog debug: {LOG_PATH}"
+        QMessageBox.critical(self, "Loi", f"Loi khi phan tich video:\n{detail}")
 
     # ── Scene List ────────────────────────────────────────────────
 
